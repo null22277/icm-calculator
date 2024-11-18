@@ -1,0 +1,14 @@
+[package]
+name = "icm-calculator"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+itertools = "0.13.0"
+rand = "0.8.5"
+
+[profile.release]
+codegen-units = 1
+panic = "abort"
+strip = true
+#lto = "fat"

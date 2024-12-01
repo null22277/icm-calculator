@@ -5,7 +5,8 @@ edition = "2021"
 
 [dependencies]
 itertools = "0.13.0"
-rand = "0.8.5"
+rand = { version = "0.8.5", features = [ "small_rng" ] }
+clap = { version = "4.5.21", features = ["derive"] }
 
 [profile.release]
 codegen-units = 1

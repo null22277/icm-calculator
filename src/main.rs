@@ -1,36 +1,50 @@
 use itertools::Itertools;
 use std::time;
-use std::env;
-use rand::Rng;
+//use std::env;
+use rand::{Rng,SeedableRng};
+use rand::rngs::SmallRng;
+use clap::Parser;
+
+#[derive(Parser)]
+struct Args{
+    /// player stack. comma-separated. ex. -s "2000,1500,1500,1000,500"
+    #[arg(short, long, default_value = "50, 30, 20, 5, 5, 4, 4, 4, 4, 4, 3")]
+    stack: String,
+
+    /// payout structure. comma-separated. ex. -p "1000,700,500,370,270,200,140,90,84,80,80"
+    #[arg(short, long, default_value = "70, 30, 9,  8, 7, 6, 5, 4, 3, 2, 2")]
+    payout: String,
+
+    /// optional. Default 1000000. sampling count for monte-carlo simulations. positive-integer.
+    #[arg(short, long, default_value = "1000000")]
+    count: u32,
+
+    /// optional. use "smallrng" for random number generator. Default "thread_rng"
+    #[arg(short, long)]
+    x: bool,
+
+    /// verbose output.
+    #[arg(short, long)]
+    verbose: bool,
+}
 
 fn main() {
 
-    let args: Vec<String> = env::args().collect();
+    let args = Args::parse();
+
     let mut stack: Vec<i32> = vec![];
     let mut payout: Vec<i32> = vec![];
 
-    //println!("args {:?}", args);
+    let stack_str: Vec<&str> = args.stack.split(',').collect();
+    let payout_str: Vec<&str> = args.payout.split(',').collect();
 
-    if args.len() == 3 {
-        let stack_str: Vec<&str> = args[1].split(',').collect();
-        let payout_str: Vec<&str> = args[2].split(',').collect();
-
-        //println!("stack_str: {:?}", stack_str);
-        //println!("payout_str: {:?}", payout_str);
-
-        for str in stack_str{
-            stack.push( str.trim().parse::<i32>().unwrap_or_default() );
-        }
-        for str in payout_str{
-            payout.push( str.trim().parse::<i32>().unwrap_or_default() );
-        }
-
-    }else{
-        stack = vec![ 50, 30, 20, 5, 5, 4, 4, 4, 4, 4, 3 ];
-        payout = vec![ 70, 30, 9,  8, 7, 6, 5, 4, 3, 2, 2 ];
-        //let stack: Vec<i32> =      vec![21, 89, 90];
-        //let mut payout: Vec<i32> = vec![50, 30, 20];
+    for str in stack_str{
+        stack.push( str.trim().parse::<i32>().unwrap_or_default() );
     }
+    for str in payout_str{
+        payout.push( str.trim().parse::<i32>().unwrap_or_default() );
+    }
+
 
     let mut payout_expected: Vec<f32> = vec![0.0; stack.len()];
 
@@ -46,16 +60,32 @@ fn main() {
         }
     }
 
-    println!("stack: {:?}",stack);
-    println!("payout: {:?}",payout);
+
+    if args.verbose {
+        println!("stack: {:?}",stack);
+        println!("payout: {:?}",payout);
+    }
 
     //Tysen's SICM method
     let now = time::Instant::now();
-    let _ = sicm(&stack, &mut payout, &mut payout_expected);
-    println!("\npayout_expected: {:?}", payout_expected);
-    println!("SICM method. done with {:?} msec.", now.elapsed().as_millis());
+    let _ = sicm(&stack, &mut payout, &mut payout_expected, args.count, args.x);
+    
+    if args.verbose {
+        println!("\npayout_expected: {:?}", payout_expected);
+        println!("SICM method. done with {:?} msec.", now.elapsed().as_millis());
+        
+        if args.x {
+            println!("rng: smallrng");
+        }else {
+            println!("rng: thread_rng");
+        }
+
+    }else {
+        println!("{:?}", payout_expected);
+    }
 
     
+    /*
     //erase
     for p in payout_expected.iter_mut(){
         *p = 0.0;
@@ -66,14 +96,14 @@ fn main() {
     let _ = icm(&stack, &mut payout, &mut payout_expected);
     println!("\npayout_expected: {:?}", payout_expected);
     println!("Malmuth-Harville method. done with {:?} msec.", now.elapsed().as_millis());
-    
+    */
 
     return;
 
 }
 
 
-fn sicm(stack: &Vec<i32>, payout: &mut Vec<i32> , payout_expected: &mut Vec<f32>){
+fn sicm(stack: &Vec<i32>, payout: &mut Vec<i32> , payout_expected: &mut Vec<f32>, count: u32, smallrng_flg: bool){
 //SICM method or Tysen's method
 //Two Plus Two Forums >> Poker Strategy >> Poker Theory & GTO
 //New algorithm to calculate ICM for large tournaments
@@ -81,7 +111,7 @@ fn sicm(stack: &Vec<i32>, payout: &mut Vec<i32> , payout_expected: &mut Vec<f32>
 
     payout.sort();
 
-    let trial_count = 1000000;
+    let trial_count = count;
     //let mut stack_avg: f32 = 0.0;
     let mut stack_total = 0;
     let mut stack_weight: Vec<f32> = Vec::with_capacity(stack.len());
@@ -98,7 +128,7 @@ fn sicm(stack: &Vec<i32>, payout: &mut Vec<i32> , payout_expected: &mut Vec<f32>
     }
 
     for _ in 0..trial_count{
-        sicm_trial(&stack_weight, payout, payout_expected, trial_count);
+        sicm_trial(&stack_weight, payout, payout_expected, trial_count, smallrng_flg);
     }
 
     //println!("payout:{:?}, trial_count:{:?}, stack_total:{:?}, stack_weight{:?}, stack:{:?}, payout_expected:{:?}", 
@@ -106,19 +136,26 @@ fn sicm(stack: &Vec<i32>, payout: &mut Vec<i32> , payout_expected: &mut Vec<f32>
 
 }
 
-fn sicm_trial(stack_weight: &Vec<f32>, payout: &mut Vec<i32>, payout_expected: &mut Vec<f32>, trial_count: i32){
-    let mut rng = rand::thread_rng();
+fn sicm_trial(stack_weight: &Vec<f32>, payout: &mut Vec<i32>, payout_expected: &mut Vec<f32>, trial_count: u32, smallrng_flg: bool){
+    
+    let mut smallrng = SmallRng::from_entropy();
+    let mut threadrng = rand::thread_rng();
 
     //let mut scores = (0. as f32, 0 as i32);
     let mut scores_vec: Vec<(f32, i32)> = Vec::with_capacity(stack_weight.len());
     //let mut results : Vec<i32> = vec![0; stack_weight.len()];
 
     let mut i = 0;
-    for w in stack_weight{
-        scores_vec.push( ((rng.gen_range(0.0..1.0) as f32).powf(*w), i) );
-        //dbg!!!!!!!!!
-        //scores_vec.push((0.9_f32.powf(*w), i));
-        i = i + 1;
+    if smallrng_flg {
+        for w in stack_weight{
+            scores_vec.push( ((smallrng.gen_range(0.0..1.0) as f32).powf(*w), i) );
+            i = i + 1;
+        }
+    }else{
+        for w in stack_weight{
+            scores_vec.push( ((threadrng.gen_range(0.0..1.0) as f32).powf(*w), i) );
+            i = i + 1;
+        }
     }
 
     //println!("scores_vec {:?}", scores_vec);
